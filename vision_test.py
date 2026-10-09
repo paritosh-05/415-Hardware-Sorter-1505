@@ -1,30 +1,4 @@
 #!/usr/bin/env python3
-"""
-vision_test.py - Prototype OpenCV pipeline for the Team 1505 hardware sorter imaging box.
-
-Feed:   Logitech webcam -> OBS (Crop/Pad filter) -> OBS Virtual Camera -> this script
-        (can also run on a saved image, a folder of images, or a video file)
-
-What it does each frame:
-  1. Grayscale + blur
-  2. Segment parts from the background (Otsu / adaptive / manual / background-subtraction)
-  3. Morphological clean-up (open + close)
-  4. Find contours (keeping holes), measure shape features
-  5. Rule-based guess: nut / bolt / washer / unknown
-  6. Show overlay + mask side by side, live sharpness score for focal-height testing
-
-Keys (click the video window first):
-  q / Esc   quit                         space   pause / resume
-  b         grab background (empty box)  m       cycle segmentation mode (blackhat is default)
-  c         calibrate px/mm using the largest object (see --ref-mm)
-  h / g     next / previous camera height label (see --heights)
-  l         log a row to results/height_log.csv + save snapshot
-  s         save raw frame to dataset/raw/
-  1 / 2 / 3 save crops of all detected objects as nut / bolt / washer
-  n / p     next / previous image (when --source is a folder)
-
-Run `python vision_test.py --list` first to find the OBS Virtual Camera index.
-"""
 import argparse
 import csv
 import glob
