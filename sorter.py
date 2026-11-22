@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Team 1505 hardware sorter - vision system v2.
 
-  python sorter.py cams                      list cameras
+  python sorter.py cams                      list cameras and serial ports
   python sorter.py setup                     camera settings, empty-belt background, lane, px/mm
   python sorter.py teach bolt-0.25           run ONLY that part through; saves examples
   python sorter.py build                     fit both models from the examples, print the report
-  python sorter.py run                       sort. Add --port COM5 to drive the collector
+  python sorter.py run                       sort. Add --port COM5 (Mac: /dev/cu.usbmodem...) to drive the collector
   python sorter.py run --truth nut-0.375     test run with one known part type: counts wrong bins
   python sorter.py check                     feed 20 parts in the order it lists; scores every one
                                              (check 30, --seed 4, --order "nut-0.25, bolt-0.375" or a file)
@@ -30,7 +30,7 @@ import cv2
 import numpy as np
 
 from camera import CameraSource, FileSource, Recorder, list_cameras
-from collector import NullLink, SerialLink
+from collector import NullLink, SerialLink, list_ports
 from config import QUARTER_MM, Config
 from pipeline import BG_FILE, Pipeline, build_models
 
@@ -240,19 +240,31 @@ def setup_key(key, src, pipe, cfg, f, last_idx, args):
         cfg.save(args.config)
         print(f"[config] saved to {args.config}")
     elif cam and key == ord("k"):
-        src.open_settings()
+        if not src.open_settings():
+            print("[camera] no settings dialog with this driver (it only exists on Windows). On macOS use a UVC "
+                  "control app such as 'CameraController' or 'uvc-util'.")
     elif cam and key in (ord("["), ord("]")):
         cur = cfg.exposure if cfg.exposure is not None else round(src.cap.get(cv2.CAP_PROP_EXPOSURE))
-        cfg.exposure = cur + (1 if key == ord("]") else -1)
-        print(f"[exposure] {src.set_exposure(cfg.exposure):.0f}  (~{1000 * 2 ** cfg.exposure:.1f} ms)")
+        new = cur + (1 if key == ord("]") else -1)
+        got = src.set_exposure(new)
+        if got is None:
+            print("[exposure] the camera driver refused it (usual on macOS): set exposure with a UVC control app")
+        else:
+            cfg.exposure = new
+            print(f"[exposure] {got:.0f}  (~{1000 * 2 ** cfg.exposure:.1f} ms)")
     elif cam and key == ord("a"):
         cfg.exposure = None
         src.auto_exposure()
         print("[exposure] auto (not recommended for sorting: brightness will drift)")
     elif cam and key in (ord(","), ord(".")):
         cur = cfg.gain if cfg.gain is not None else src.cap.get(cv2.CAP_PROP_GAIN)
-        cfg.gain = max(0, cur + (8 if key == ord(".") else -8))
-        print(f"[gain] {src.set_gain(cfg.gain):.0f}")
+        new = max(0, cur + (8 if key == ord(".") else -8))
+        got = src.set_gain(new)
+        if got is None:
+            print("[gain] the camera driver refused it (usual on macOS): set gain with a UVC control app")
+        else:
+            cfg.gain = new
+            print(f"[gain] {got:.0f}")
     elif cam and key == ord("i"):
         print(src.describe())
     return last_idx
@@ -270,7 +282,7 @@ def main():
     ap.add_argument("--file-fps", type=float)
     ap.add_argument("--headless", action="store_true")
     ap.add_argument("--config", default="config.json")
-    ap.add_argument("--port", help="collector serial port, e.g. COM5")
+    ap.add_argument("--port", help="collector serial port, e.g. COM5 on Windows, /dev/cu.usbmodem1101 on macOS")
     ap.add_argument("--ref-mm", type=float, help="setup: diameter in mm of the round object used for 'c' "
                                                  "(default: a US quarter, 24.26)")
     ap.add_argument("--truth", help="run mode: every part in this run is this label (for scoring)")
@@ -279,7 +291,10 @@ def main():
     cfg = Config.load(args.config)
 
     if args.mode == "cams":
+        print("Cameras:")
         list_cameras()
+        print("Serial ports (for --port):")
+        list_ports()
     elif args.mode == "build":
         build_models(cfg)
     elif args.mode == "selftest":

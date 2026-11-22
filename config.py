@@ -15,7 +15,7 @@ class Config:
     height: int = 800
     fps: int = 120
     mjpg: bool = True
-    exposure: float = None            # DirectShow log2(seconds): -7 ~ 8 ms, -8 ~ 4 ms, -9 ~ 2 ms
+    exposure: float = None            # DirectShow log2(seconds): -7 ~ 8 ms, -8 ~ 4 ms, -9 ~ 2 ms (ignored on macOS)
     gain: float = None
 
     # ---- geometry of the view ---------------------------------------------------------------
@@ -66,7 +66,7 @@ class Config:
     slots: dict = field(default_factory=lambda: {
         "bolt-0.25": 1, "nut-0.25": 2, "washer-0.25": 3,
         "bolt-0.375": 4, "nut-0.375": 5, "washer-0.375": 6})
-    port: str = None                  # serial port of the collector controller, e.g. "COM5"
+    port: str = None                  # serial port of the collector controller, e.g. "COM5", or "/dev/cu.usbmodem1101" on macOS
     baud: int = 115200
 
     # ---- decision rule ----------------------------------------------------------------------

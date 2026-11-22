@@ -36,7 +36,12 @@ class NullLink:
 class SerialLink:
     def __init__(self, port, baud=115200):
         import serial                      # pip install pyserial
-        self.ser = serial.Serial(port, baud, timeout=0)
+        try:
+            self.ser = serial.Serial(port, baud, timeout=0)
+        except serial.SerialException as e:
+            print(f"Could not open serial port {port}: {e}\nPorts found:")
+            list_ports()
+            raise SystemExit(1)
         self.buf = b""
         time.sleep(2.0)                    # most boards reset when the port opens
         self.ser.write(b"H\n")
@@ -56,6 +61,22 @@ class SerialLink:
             self.ser.close()
         except Exception:
             pass
+
+
+def list_ports():
+    """Print the serial ports. On macOS use the /dev/cu.* name (not /dev/tty.*) for --port."""
+    try:
+        from serial.tools import list_ports as lp
+    except ImportError:
+        print("  pyserial is not installed: pip install pyserial")
+        return
+    ports = sorted(lp.comports(), key=lambda p: p.device)
+    for p in ports:
+        if "Bluetooth" in p.device or "debug-console" in p.device:
+            continue                       # macOS built-ins, never the collector
+        print(f"  {p.device}  {p.description if p.description != 'n/a' else ''}".rstrip())
+    if not any("Bluetooth" not in p.device and "debug-console" not in p.device for p in ports):
+        print("  none (is the collector's USB cable plugged in?)")
 
 
 class SimCollector:

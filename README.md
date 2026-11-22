@@ -63,6 +63,37 @@ python sorter.py selftest
 ```
 The self-test runs a simulated belt for about two minutes and should end with `ALL CHECKS PASSED`.
 
+## macOS
+
+Everything except the camera controls works the same as on Windows. The self-test passes on an Apple-silicon Mac.
+
+```
+python3 -m venv .venv
+source .venv/bin/activate          # do this in every new terminal
+pip install -r requirements.txt
+python sorter.py selftest
+```
+
+Differences from Windows:
+
+- **Camera permission.** The first time, macOS asks whether your terminal app (Terminal, iTerm, VS Code) may use
+  the camera. If you refused, or nothing opens: System Settings > Privacy & Security > Camera, allow it, then
+  quit and reopen the terminal app.
+- **Camera numbers change.** The built-in camera and an iPhone (Continuity Camera) also count, so the USB
+  camera is probably not `1` as on Windows. Run `python sorter.py cams` and use `--camera N`, then `w` in setup.
+- **No exposure, gain or MJPG control.** OpenCV's macOS driver (AVFoundation) ignores these settings, so
+  `[ ] , . a` and `k` in setup say "refused" and do nothing. The `exposure`/`gain` values in `config.json` are
+  Windows (DirectShow) values and are ignored here. Lock exposure and gain *before* starting the sorter with a
+  UVC control app, e.g. CameraController (free, App Store / GitHub) or `uvc-util`. Then grab the background
+  (`b`). Auto exposure lets the belt brightness drift, and the health check sends parts to re-sort when it does.
+- **Frame rate.** Without MJPG the camera may not reach 1280x800 at 120 fps. The start-up line prints the
+  real rate. If it is low, the belt must run slower (see the exposure rule above), or lower `width`/`height`
+  in `config.json`. **px/mm and teaching depend on the resolution**: if you change it, redo `c` and teach again.
+- **Serial port.** `python sorter.py cams` also lists serial ports. The collector shows up as
+  `/dev/cu.usbmodem…` or `/dev/cu.usbserial…`. Use the `cu.` name, not `tty.`:
+  `python sorter.py run --port /dev/cu.usbmodem1101`. Your own Bluetooth devices also appear in that list.
+- Windows uses `python`; on macOS it is `python3`, or plain `python` while the venv is active.
+
 ## On the rig
 
 Do these in order, from this folder. Close OBS first.
@@ -93,7 +124,7 @@ Do these in order, from this folder. Close OBS first.
      text file for your own. A missed part or an extra detection does not shift the rest of the table.
    - *Blind:* `python sorter.py run` and feed anything. Check the answers afterwards on `sheet.png`.
    - *One part type:* `python sorter.py run --truth nut-0.375` counts correct bin, re-sort and WRONG BIN.
-6. **Sort:** `python sorter.py run --port COM5`.
+6. **Sort:** `python sorter.py run --port COM5` (macOS: `--port /dev/cu.usbmodem…`).
 
 If every part is rejected, read the terminal: it prints `[advice]` when parts are moving against the
 configured belt direction (press `f` in setup, then `w`), and when the camera is too slow for the belt speed.
