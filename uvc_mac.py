@@ -7,6 +7,7 @@ same units as on Windows (DirectShow: log2 of seconds, -11 ~ 0.5 ms), so one con
 
 Needs: pip install pyusb libusb-package
 """
+import array
 import math
 
 # UVC 1.1 constants
@@ -112,13 +113,22 @@ class UvcControls:
         return cls(dev, intf, ct, pu, label(pick[0]))
 
     # ---- raw requests ---------------------------------------------------------------------
+    # pyusb's dev.ctrl_transfer() claims the interface first for interface requests. macOS's camera
+    # service holds the VideoControl interface, so that claim fails ("Access denied"). The request itself
+    # is allowed on the open device, so send it through the backend directly, without claiming.
+    def _xfer(self, rtype, req, wvalue, windex, buf):
+        ctx = self.dev._ctx
+        ctx.managed_open()
+        return ctx.backend.ctrl_transfer(ctx.handle, rtype, req, wvalue, windex, buf, 500)
+
     def _get(self, req, unit, sel, n):
-        data = self.dev.ctrl_transfer(0xA1, req, sel << 8, (unit << 8) | self.intf, n, timeout=500)
-        return int.from_bytes(bytes(data), "little", signed=False)
+        buf = array.array("B", bytes(n))
+        got = self._xfer(0xA1, req, sel << 8, (unit << 8) | self.intf, buf)
+        return int.from_bytes(bytes(buf[:got]), "little", signed=False)
 
     def _set(self, unit, sel, value, n):
-        self.dev.ctrl_transfer(0x21, SET_CUR, sel << 8, (unit << 8) | self.intf,
-                               int(value).to_bytes(n, "little", signed=False), timeout=500)
+        self._xfer(0x21, SET_CUR, sel << 8, (unit << 8) | self.intf,
+                   array.array("B", int(value).to_bytes(n, "little", signed=False)))
 
     def _range(self, unit, sel, n):
         return self._get(GET_MIN, unit, sel, n), self._get(GET_MAX, unit, sel, n)
