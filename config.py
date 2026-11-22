@@ -15,8 +15,9 @@ class Config:
     height: int = 800
     fps: int = 120
     mjpg: bool = True
-    exposure: float = None            # DirectShow log2(seconds): -7 ~ 8 ms, -8 ~ 4 ms, -9 ~ 2 ms (ignored on macOS)
+    exposure: float = None            # DirectShow log2(seconds): -7 ~ 8 ms, -8 ~ 4 ms, -9 ~ 2 ms (same units on macOS)
     gain: float = None
+    uvc_device: str = ""              # macOS only, if several USB cameras: "vvvv:pppp" or part of its USB name
 
     # ---- geometry of the view ---------------------------------------------------------------
     px_per_mm: float = 14.3           # full-resolution pixels per mm at belt level ('c' in setup)

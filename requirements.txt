@@ -1,3 +1,5 @@
 opencv-python
 numpy
 pyserial
+pyusb; sys_platform == "darwin"
+libusb-package; sys_platform == "darwin"

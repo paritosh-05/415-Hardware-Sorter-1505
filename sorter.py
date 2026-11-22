@@ -241,14 +241,13 @@ def setup_key(key, src, pipe, cfg, f, last_idx, args):
         print(f"[config] saved to {args.config}")
     elif cam and key == ord("k"):
         if not src.open_settings():
-            print("[camera] no settings dialog with this driver (it only exists on Windows). On macOS use a UVC "
-                  "control app such as 'CameraController' or 'uvc-util'.")
+            print("[camera] no settings dialog on macOS; exposure and gain work with [ ] , . a")
     elif cam and key in (ord("["), ord("]")):
-        cur = cfg.exposure if cfg.exposure is not None else round(src.cap.get(cv2.CAP_PROP_EXPOSURE))
+        cur = cfg.exposure if cfg.exposure is not None else round(src.get_exposure())
         new = cur + (1 if key == ord("]") else -1)
         got = src.set_exposure(new)
         if got is None:
-            print("[exposure] the camera driver refused it (usual on macOS): set exposure with a UVC control app")
+            print("[exposure] the camera refused it (see the NOTE at start-up)")
         else:
             cfg.exposure = new
             print(f"[exposure] {got:.0f}  (~{1000 * 2 ** cfg.exposure:.1f} ms)")
@@ -257,11 +256,11 @@ def setup_key(key, src, pipe, cfg, f, last_idx, args):
         src.auto_exposure()
         print("[exposure] auto (not recommended for sorting: brightness will drift)")
     elif cam and key in (ord(","), ord(".")):
-        cur = cfg.gain if cfg.gain is not None else src.cap.get(cv2.CAP_PROP_GAIN)
+        cur = cfg.gain if cfg.gain is not None else src.get_gain()
         new = max(0, cur + (8 if key == ord(".") else -8))
         got = src.set_gain(new)
         if got is None:
-            print("[gain] the camera driver refused it (usual on macOS): set gain with a UVC control app")
+            print("[gain] the camera refused it (see the NOTE at start-up)")
         else:
             cfg.gain = new
             print(f"[gain] {got:.0f}")

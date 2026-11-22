@@ -58,14 +58,14 @@ The empty-belt background (`b` in setup) must be taken with the seam out of view
 ## Install
 
 ```
-pip install opencv-python numpy pyserial
+pip install -r requirements.txt
 python sorter.py selftest
 ```
 The self-test runs a simulated belt for about two minutes and should end with `ALL CHECKS PASSED`.
 
 ## macOS
 
-Everything except the camera controls works the same as on Windows. The self-test passes on an Apple-silicon Mac.
+Everything works the same as on Windows, apart from the points below. The self-test passes on an Apple-silicon Mac.
 
 ```
 python3 -m venv .venv
@@ -81,14 +81,15 @@ Differences from Windows:
   quit and reopen the terminal app.
 - **Camera numbers change.** The built-in camera and an iPhone (Continuity Camera) also count, so the USB
   camera is probably not `1` as on Windows. Run `python sorter.py cams` and use `--camera N`, then `w` in setup.
-- **No exposure, gain or MJPG control.** OpenCV's macOS driver (AVFoundation) ignores these settings, so
-  `[ ] , . a` and `k` in setup say "refused" and do nothing. The `exposure`/`gain` values in `config.json` are
-  Windows (DirectShow) values and are ignored here. Lock exposure and gain *before* starting the sorter with a
-  UVC control app, e.g. CameraController (free, App Store / GitHub) or `uvc-util`. Then grab the background
-  (`b`). Auto exposure lets the belt brightness drift, and the health check sends parts to re-sort when it does.
-- **Frame rate.** Without MJPG the camera may not reach 1280x800 at 120 fps. The start-up line prints the
-  real rate. If it is low, the belt must run slower (see the exposure rule above), or lower `width`/`height`
-  in `config.json`. **px/mm and teaching depend on the resolution**: if you change it, redo `c` and teach again.
+- **Exposure and gain work as on Windows.** `config.json`'s `exposure`/`gain` are applied when the camera opens
+  and the setup keys `[ ] , . a` work. The Mac driver (AVFoundation) ignores these settings when they come from
+  OpenCV, so `uvc_mac.py` sends them to the camera over USB itself (the same standard UVC controls the Windows
+  driver uses). The units are the same as Windows (`-11` ~ 0.5 ms), so one `config.json` works on both. The
+  start-up line shows `USB control: <camera name>` when this is working. If more than one USB camera is
+  plugged in, set `"uvc_device"` in `config.json` to its `vvvv:pppp` id or part of its name (the NOTE lists them).
+  `k` (the Windows camera dialog) does nothing on macOS.
+- **Frame rate.** OpenCV on macOS cannot ask for MJPG or a frame rate. The start-up line prints the real rate.
+  It should be near 120; if it is much lower, sorting fast parts will fail (see the `[advice]` lines).
 - **Serial port.** `python sorter.py cams` also lists serial ports. The collector shows up as
   `/dev/cu.usbmodem…` or `/dev/cu.usbserial…`. Use the `cu.` name, not `tty.`:
   `python sorter.py run --port /dev/cu.usbmodem1101`. Your own Bluetooth devices also appear in that list.
@@ -169,6 +170,7 @@ Each `run` writes `runs/<time>/`:
 | `sorter.py` | command line and windows |
 | `config.py` | all settings |
 | `camera.py` | camera thread, file replay, recorder |
+| `uvc_mac.py` | macOS only: exposure and gain sent to the camera over USB |
 | `segment.py` | finding parts, measurements, appearance descriptor |
 | `models.py` | geometric model, appearance model, agreement rule |
 | `tracker.py` | tracks, speed, rolling check, belt seam |

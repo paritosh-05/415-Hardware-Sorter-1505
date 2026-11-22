@@ -54,19 +54,43 @@ class CameraSource:
             self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.requested_fps = cfg.fps
-        self.notes = []
-        if cfg.exposure is not None and self.set_exposure(cfg.exposure) is None:
-            self.notes.append(f"NOTE: the camera driver ignored exposure {cfg.exposure} from config.json.")
-        if cfg.gain is not None and self.set_gain(cfg.gain) is None:
-            self.notes.append(f"NOTE: the camera driver ignored gain {cfg.gain} from config.json.")
-        if IS_MAC and self.notes:
-            self.notes.append("      macOS (AVFoundation) usually cannot set exposure or gain from OpenCV. Lock them with "
-                              "a UVC control app (e.g. 'CameraController' or 'uvc-util') before running, "
-                              "or the belt brightness may drift.")
+        self.notes, self.uvc = [], None
+        if IS_MAC:        # AVFoundation ignores exposure/gain: talk to the camera over USB instead (uvc_mac.py)
+            try:
+                from uvc_mac import UvcControls
+                self.uvc = UvcControls.find(getattr(cfg, "uvc_device", ""))
+            except Exception as e:
+                self.notes.append(f"NOTE: cannot control exposure/gain on this Mac: {e}")
+        self.want_exposure, self.want_gain = cfg.exposure, cfg.gain
+        self._apply_settings()
         self._lock, self._latest, self._count, self._running = threading.Lock(), None, 0, True
         self.capture_fps = 0.0
         self._stamps = []
         threading.Thread(target=self._loop, daemon=True).start()
+
+    def _apply_settings(self):
+        """Apply exposure/gain from config.json (again after streaming starts: macOS may reset them then)."""
+        self.notes = [n for n in self.notes if "ignored" not in n]
+        if self.want_exposure is not None and self.set_exposure(self.want_exposure) is None:
+            self.notes.append(f"NOTE: the camera ignored exposure {self.want_exposure} from config.json.")
+        if self.want_gain is not None and self.set_gain(self.want_gain) is None:
+            self.notes.append(f"NOTE: the camera ignored gain {self.want_gain} from config.json.")
+
+    def get_exposure(self):
+        if self.uvc:
+            try:
+                return self.uvc.get_exposure()
+            except Exception:
+                return float("nan")
+        return self.cap.get(cv2.CAP_PROP_EXPOSURE)
+
+    def get_gain(self):
+        if self.uvc:
+            try:
+                return self.uvc.get_gain()
+            except Exception:
+                return float("nan")
+        return self.cap.get(cv2.CAP_PROP_GAIN)
 
     def _loop(self):
         t_prev = time.perf_counter()
@@ -99,7 +123,8 @@ class CameraSource:
         fcc = int(g(cv2.CAP_PROP_FOURCC))
         fcc = "".join(chr((fcc >> 8 * i) & 0xFF) for i in range(4)) if fcc > 0 else "?"
         return (f"camera {int(g(cv2.CAP_PROP_FRAME_WIDTH))}x{int(g(cv2.CAP_PROP_FRAME_HEIGHT))} {fcc}, "
-                f"exposure {g(cv2.CAP_PROP_EXPOSURE):.0f}, gain {g(cv2.CAP_PROP_GAIN):.0f}, "
+                f"exposure {self.get_exposure():.0f}, gain {self.get_gain():.0f}, "
+                + (f"(USB control: {self.uvc.name}) " if self.uvc else "") +
                 f"measured {self.capture_fps:.0f} fps")
 
     def warm_up(self, timeout=3.0):
@@ -107,14 +132,14 @@ class CameraSource:
         t_end = time.perf_counter() + timeout
         while time.perf_counter() < t_end and len(self._stamps) < 30:
             time.sleep(0.05)
+        if self.uvc:
+            self._apply_settings()
         notes = list(self.notes)
         if self.capture_fps < 0.6 * self.requested_fps:
             notes.append(f"NOTE: the camera is delivering {self.capture_fps:.0f} frames/s, not the {self.requested_fps} "
                          f"asked for. " + ("Shorter exposure helps (press ] / [ in setup); so does closing other camera apps."
-                                           if not IS_MAC else "Close other camera apps (FaceTime, Zoom, Photo Booth)."))
-            if IS_MAC:
-                notes.append("      On macOS OpenCV cannot ask for MJPG, so high frame rates at full size may not be "
-                             "available. Try a smaller --fps or a lower width/height in config.json.")
+                                           if not IS_MAC else "Shorter exposure helps (press ] / [ in setup); "
+                                           "so does closing other camera apps (FaceTime, Zoom, Photo Booth)."))
         return "\n".join(notes)
 
     def open_settings(self):
@@ -124,18 +149,34 @@ class CameraSource:
         return bool(self.cap.set(cv2.CAP_PROP_SETTINGS, 1))
 
     def set_exposure(self, value):
-        """DirectShow units: log2(seconds). -7 ~ 8 ms, -8 ~ 4 ms, -9 ~ 2 ms, -10 ~ 1 ms.
-        Returns the value the driver reports, or None if the driver refused it (usual on macOS)."""
+        """DirectShow units: log2(seconds). -7 ~ 8 ms, -8 ~ 4 ms, -9 ~ 2 ms, -10 ~ 1 ms (same units on macOS).
+        Returns the value the camera reports, or None if it refused."""
+        if IS_MAC:
+            try:
+                return self.uvc.set_exposure(value) if self.uvc else None
+            except Exception as e:
+                print(f"[exposure] USB request failed: {e}")
+                return None
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
         if not self.cap.set(cv2.CAP_PROP_EXPOSURE, float(value)):
             return None
         return self.cap.get(cv2.CAP_PROP_EXPOSURE)
 
     def auto_exposure(self):
+        if IS_MAC:
+            if self.uvc:
+                self.uvc.auto_exposure()
+            return
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
 
     def set_gain(self, value):
-        """Returns the value the driver reports, or None if the driver refused it (usual on macOS)."""
+        """Returns the value the camera reports, or None if it refused."""
+        if IS_MAC:
+            try:
+                return self.uvc.set_gain(value) if self.uvc else None
+            except Exception as e:
+                print(f"[gain] USB request failed: {e}")
+                return None
         if not self.cap.set(cv2.CAP_PROP_GAIN, float(value)):
             return None
         return self.cap.get(cv2.CAP_PROP_GAIN)
