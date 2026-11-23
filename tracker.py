@@ -192,13 +192,18 @@ class Tracker:
 
     def _live_speeds(self, t, skip=None):
         """Current speeds of the parts in view on this frame (not `skip`, not touching ones)."""
+        # Something that is not riding the belt must not set the belt speed: a part dragging on the rail,
+        # a hand, a part dropped in, or anything standing still. So: no odd tracks, never below 15 mm/s,
+        # and within half to double the speed of the last few parts.
+        usual = float(np.median(self._speeds)) if len(self._speeds) >= 3 else None
         out = []
         for tr in self.tracks:
-            if tr is skip or tr.last_seen != t or tr.flags & {"touching", "oversize"}:
+            if tr is skip or tr.last_seen != t or tr.flags & {"touching", "oversize", "side", "appeared"}:
                 continue
             v = tr.recent_speed()
-            if v is not None:
-                out.append(v)
+            if v is None or v < 15.0 or (usual and not 0.5 * usual <= v <= 2.0 * usual):
+                continue
+            out.append(v)
         return out
 
     # ------------------------------------------------------------------------------- belt seam
