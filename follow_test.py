@@ -59,8 +59,11 @@ def run(kind, follow, gap, n=45, tol=0.10):
     e = np.abs(errs)
     print(f"{kind:11s} follow={str(follow):5s} gap {gap}: {res}  timing error median {np.median(e):.0f} ms, worst {e.max():.0f} ms  {why}")
 
-for kind in ["steady", "slow drift", "fast surge", "steps"]:
-    for follow in (False, True):
-        run(kind, follow, (2.0, 4.0))
-for kind in ["slow drift", "steps"]:
-    run(kind, True, (0.8, 1.6))
+if "quick" in sys.argv:                 # python follow_test.py quick   (about 3 minutes instead of 13)
+    run("steady", True, (2.0, 4.0)); run("steps", True, (2.0, 4.0))
+else:
+    for kind in ["steady", "slow drift", "fast surge", "steps"]:
+        for follow in (False, True):
+            run(kind, follow, (2.0, 4.0))
+    for kind in ["slow drift", "steps"]:
+        run(kind, True, (0.8, 1.6))
