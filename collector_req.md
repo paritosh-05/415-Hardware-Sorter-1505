@@ -33,10 +33,11 @@ Drive
 - One pie revolution = 4 motor revolutions = 12800 microsteps. One slice (45 deg of pie) = 1600 microsteps
   = 180 deg of motor, the same move stepper_serial_moves.ino was tested with.
 - The pie always turns the shorter way round, so the longest move is 4 slices.
-- Speed and acceleration copy the tested example (180 deg of motor in 300 ms, 25% ramps):
-  1 slice 300 ms, 2 slices 525 ms, 3 slices 750 ms, 4 slices 975 ms (75 ms + 225 ms per slice).
-  The laptop is told this in config.json: step_ms 225, settle_ms 175 (75 ms + 100 ms margin to settle).
-  If MAX_SPEED or ACCEL in the sketch change, change those two numbers to match.
+- Every move takes MOVE_TIME_MS = 300 ms, whether 1 slice or 4 (runMove() of stepper_serial_moves.ino,
+  25% ramps, TIME_SCALES_WITH_LENGTH = false). Parts fall off the belt one after another, so two parts for
+  different slices that land less than min_gap_ms apart both go to Rework (config.json: min_gap_ms 300,
+  step_ms 0). A 4-slice move in 300 ms is 720 deg of motor (about 530 rpm at the peak): check on the bench
+  that it does not skip steps. See collector_open_questions.md for the margin.
 - Direction: "forward" means the catching slice goes from 1 to 2. If it turns the wrong way, flip INVERT_DIR.
 
 Timing (who decides when)
@@ -46,10 +47,10 @@ Timing (who decides when)
 - Slices are numbered 1-8 in the protocol, the same as the bin mapping above.
 - Parts the vision system is not sure about go to slice 7 (Rework). Slice 8 (Misc) is not used yet.
 - With nothing queued the pie goes back to slice 7, so anything the camera missed lands in Rework.
+  (Under review: see collector_open_questions.md.)
   On power-up it first turns from slice 1 to slice 7.
 - A part is announced when it crosses the yellow DECIDE line, about 2.9 s before it lands at 94 mm/s.
-  That must stay longer than two of the longest moves (about 2 s: back to Rework and out again), so with
-  270 mm of belt after the DECIDE line the belt should not run faster than about 130 mm/s.
+  That must stay longer than two moves (0.6 s: back to Rework and out again), which it easily does.
 
 Start-up position
 - The Uno resets every time the laptop opens the serial port. So the sketch saves the current slice in

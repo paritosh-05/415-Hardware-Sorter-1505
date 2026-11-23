@@ -17,9 +17,14 @@
 // How it works: the queue holds (id, slice, landing time) sorted by time. The pie always heads for the
 // slice of the earliest part that has not landed yet; once that time has passed the entry is removed
 // and the pie turns on, by the shorter way round. With an empty queue it goes to IDLE_SLICE (Rework),
-// so anything the camera did not announce lands there. Steps are made by a Timer1 interrupt, so the
-// serial port keeps being read while the pie turns. The LEDs are written once in setup() and never
-// again: writing WS2812 LEDs blocks interrupts, which would lose serial bytes and upset the steps.
+// so anything the camera did not announce lands there.
+//
+// Every move takes MOVE_TIME_MS (300 ms), whether it is 1 slice or 4, using the move code of
+// stepper_serial_moves.ino (trapezoidal profile, TIME_SCALES_WITH_LENGTH = false). The laptop knows this
+// (min_gap_ms = 300 in config.json): two parts for different slices that land less than 300 ms apart
+// both go to Rework. A move blocks for its 300 ms; serial bytes arriving meanwhile wait in the 64-byte
+// receive buffer and are read straight after. The LEDs are written once in setup() and never again:
+// writing WS2812 LEDs blocks interrupts, which would lose serial bytes.
 
 #include <Adafruit_NeoPixel.h>
 #include <EEPROM.h>
@@ -38,12 +43,11 @@ const int  N_SLICES = 8;
 const long STEPS_PER_SLICE = MOTOR_STEPS * MICROSTEP * GEAR_RATIO / N_SLICES;   // 1600 (= 180 deg of motor)
 const bool INVERT_DIR = false;      // flip if G,2 from slice 1 turns the pie the wrong way
 
-// Speed and acceleration in microsteps. These defaults are the motion stepper_serial_moves.ino was
-// tested with (180 deg of motor in 300 ms, 25% ramps): 1 slice 300 ms, 2: 525, 3: 750, 4: 975 ms.
-// In general: move ms = 75 + 225 * slices. If you change them, update step_ms / settle_ms in config.json.
-constexpr float MAX_SPEED = 7111.0;     // microsteps per second
-constexpr float ACCEL = 94815.0;      // microsteps per second^2
-const unsigned int PULSE_US = 5;    // step pulse width
+// Motion, as in stepper_serial_moves.ino: every move takes MOVE_TIME_MS in total, however many slices.
+// If MOVE_TIME_MS changes, change min_gap_ms in config.json to match.
+const unsigned long MOVE_TIME_MS = 300;
+const float ACCEL_FRACTION = 0.25;  // share of the move spent speeding up (and the same slowing down)
+const unsigned int PULSE_US = 5;    // step pulse high/low width
 
 // ---------------- Behaviour ----------------
 const uint8_t START_SLICE = 1;      // slice catching at power-up when no position was saved
@@ -63,16 +67,8 @@ const uint8_t EE_TURNING = 0;
 Adafruit_NeoPixel stripA(LEDS_PER_STRIP, LED_PIN_A, NEO_GRB + NEO_KHZ800);
 Adafruit_NeoPixel stripB(LEDS_PER_STRIP, LED_PIN_B, NEO_GRB + NEO_KHZ800);
 
-// Step intervals for the acceleration ramp, in Timer1 ticks (0.5 us). Step k of a move waits
-// ramp[min(k, last - k)], or the cruise interval once that index is past the ramp.
-constexpr int RAMP_N = (int)(MAX_SPEED * MAX_SPEED / (2.0 * ACCEL)) + 1;
-uint16_t ramp[RAMP_N];
-uint16_t cruiseTicks;
-
-volatile long stepsTotal = 0, stepsDone = 0;
-volatile bool turning = false;
-uint8_t pos = START_SLICE;          // slice catching now (valid when not turning)
-uint8_t moveTarget = START_SLICE;
+unsigned long moveStart = 0, moveEnd = 0;   // millis() of the last move, for D reports
+uint8_t pos = START_SLICE;          // slice catching now
 
 struct Entry { long id; uint8_t slice; unsigned long due; };
 const int QMAX = 16;
@@ -82,28 +78,55 @@ int qn = 0;
 char line[40];
 uint8_t lineLen = 0;
 
-// ---------------------------------------------------------------- stepping (Timer1)
-ISR(TIMER1_COMPA_vect) {
+// ---------------------------------------------------------------- stepping
+inline void stepPulse() {
   digitalWrite(PUL_PIN, HIGH);
   delayMicroseconds(PULSE_US);
   digitalWrite(PUL_PIN, LOW);
-  long done = ++stepsDone;
-  if (done >= stepsTotal) {
-    TCCR1B = 0;                     // stop the timer
-    turning = false;
-    return;
-  }
-  long k = min(done, stepsTotal - 1 - done);
-  OCR1A = (k < RAMP_N ? ramp[k] : cruiseTicks) - 1;
+  delayMicroseconds(PULSE_US);
 }
 
-void buildRamp() {
-  for (int i = 0; i < RAMP_N; i++) {
-    float dt = sqrt(2.0 * (i + 1) / ACCEL) - sqrt(2.0 * i / ACCEL);   // seconds between steps i and i+1
-    ramp[i] = (uint16_t)min(65000.0, dt * 2e6);
+// Move n slices in one continuous trapezoidal motion lasting MOVE_TIME_MS (runMove() of
+// stepper_serial_moves.ino with TIME_SCALES_WITH_LENGTH = false). Blocks until the move is over.
+void runMove(bool forward, int n) {
+  long D = (long)n * STEPS_PER_SLICE;                     // total steps
+  unsigned long totalUs = MOVE_TIME_MS * 1000UL;
+
+  float accelFrac = constrain(ACCEL_FRACTION, 0.01, 0.5);
+  float Tf = (float)totalUs;
+  float Ta = Tf * accelFrac;                  // accel time (= decel time)
+  float v  = (float)D / (Tf - Ta);            // cruise speed, steps per microsecond
+  float pAccel = 0.5f * v * Ta;               // steps covered by end of accel
+
+  digitalWrite(DIR_PIN, (forward != INVERT_DIR) ? HIGH : LOW);
+  delayMicroseconds(100);                     // let DIR settle
+
+  long done = 0;
+  unsigned long start = micros();
+
+  while (done < D) {
+    float t = (float)(micros() - start);
+    float target;
+
+    if (t >= Tf) {
+      target = (float)D;
+    } else if (t < Ta) {                      // accelerating
+      target = v * t * t / (2.0f * Ta);
+    } else if (t < Tf - Ta) {                 // cruising
+      target = pAccel + v * (t - Ta);
+    } else {                                  // decelerating
+      float r = Tf - t;
+      target = (float)D - v * r * r / (2.0f * Ta);
+    }
+
+    long tgt = (long)target;
+    if (tgt > D) tgt = D;
+    while (done < tgt) {                      // catch up with the profile
+      stepPulse();
+      done++;
+    }
   }
-  cruiseTicks = (uint16_t)(2e6 / MAX_SPEED);
-  for (int i = 0; i < RAMP_N; i++) ramp[i] = max(ramp[i], cruiseTicks);
+  while ((unsigned long)(micros() - start) < totalUs) {}   // the move lasts the full time
 }
 
 void savePos(uint8_t v) {
@@ -118,24 +141,15 @@ int shortest(uint8_t from, uint8_t to) {
   return d;
 }
 
-void startMove(uint8_t target) {
+void moveTo(uint8_t target) {
   int d = shortest(pos, target);
   if (d == 0) return;
   savePos(EE_TURNING);
-  digitalWrite(DIR_PIN, ((d > 0) != INVERT_DIR) ? HIGH : LOW);
-  delayMicroseconds(100);           // let DIR settle
-  noInterrupts();
-  stepsTotal = (long)abs(d) * STEPS_PER_SLICE;
-  stepsDone = 0;
-  turning = true;
-  TCCR1A = 0;
-  TCNT1 = 0;
-  OCR1A = ramp[0] - 1;
-  TIFR1 = _BV(OCF1A);
-  TIMSK1 = _BV(OCIE1A);
-  TCCR1B = _BV(WGM12) | _BV(CS11);  // CTC, prescaler 8 -> 0.5 us ticks
-  interrupts();
-  moveTarget = target;
+  moveStart = millis();
+  runMove(d > 0, abs(d));
+  moveEnd = millis();
+  pos = target;
+  savePos(pos);
 }
 
 // ---------------------------------------------------------------- queue
@@ -164,7 +178,9 @@ void queuePut(long id, uint8_t slice, unsigned long due) {
 void landPassed(unsigned long now) {
   while (qn > 0 && (long)(now - queue[0].due) >= 0) {
     Serial.print(F("D,")); Serial.print(queue[0].id); Serial.print(',');
-    Serial.println(turning ? 0 : pos);
+    // landed during the last move (reported just after it): the pie was turning
+    bool during = (long)(queue[0].due - moveStart) >= 0 && (long)(moveEnd - queue[0].due) > 0;
+    Serial.println(during ? 0 : pos);
     for (int j = 0; j < qn - 1; j++) queue[j] = queue[j + 1];
     qn--;
   }
@@ -190,12 +206,12 @@ void handleLine(char *s) {
     qn = 0;
     queuePut(-1, (uint8_t)atol(a), millis() + 3000);    // stay there 3 s, then back to Rework
   } else if (c == 'Z') {
-    if (!a || !validSlice(atol(a)) || turning) { Serial.println(F("?,BAD Z")); return; }
-    pos = moveTarget = (uint8_t)atol(a);
+    if (!a || !validSlice(atol(a))) { Serial.println(F("?,BAD Z")); return; }
+    pos = (uint8_t)atol(a);
     savePos(pos);
     Serial.print(F("POS,")); Serial.println(pos);
   } else if (c == 'P') {
-    Serial.print(F("POS,")); Serial.println(turning ? 0 : pos);
+    Serial.print(F("POS,")); Serial.println(pos);
   } else {
     Serial.println(F("?,UNKNOWN"));
   }
@@ -232,7 +248,6 @@ void setup() {
   }
   stripA.show(); stripB.show();     // the only LED writes (see the top of the file)
 
-  buildRamp();
   uint8_t saved = REMEMBER_POSITION ? EEPROM.read(EE_POS) : 0xFF;
   if (validSlice(saved)) {
     pos = saved;
@@ -242,7 +257,6 @@ void setup() {
       Serial.println(F("?,RESTARTED WHILE TURNING: assuming slice 1 is catching. Re-align the pie, then send Z,1"));
     savePos(pos);
   }
-  moveTarget = pos;
   Serial.print(F("POS,")); Serial.println(pos);
   Serial.println(F("READY"));
 }
@@ -250,12 +264,6 @@ void setup() {
 void loop() {
   readSerial();
   landPassed(millis());
-  if (!turning) {
-    if (pos != moveTarget) {        // a move just finished
-      pos = moveTarget;
-      savePos(pos);
-    }
-    uint8_t target = qn > 0 ? queue[0].slice : IDLE_SLICE;
-    if (target != pos) startMove(target);
-  }
+  uint8_t target = qn > 0 ? queue[0].slice : IDLE_SLICE;
+  if (target != pos) moveTo(target);
 }

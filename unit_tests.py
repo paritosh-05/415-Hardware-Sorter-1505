@@ -66,15 +66,22 @@ s.tick(5.05); assert not s.done; s.tick(5.11); assert len(s.done) == 1
 # 14 simulated collector: where is it at a given time?
 sc = SimCollector(cfg, move_ms=500); sc.set_time(0.0); sc.send(0, 1, 5000); sc.send(1, 2, 5700)
 assert sc.slot_at(4.0) == 1 and sc.slot_at(5.0) == 1 and sc.slot_at(5.2) is None and sc.slot_at(5.5) == 2 and sc.slot_at(5.7) == 2
-# 15 the real collector (collector.ino): 8 slices, move = 75 + 225 ms per slice, back to Rework (7) when idle
-c5 = Config(); c5.n_slots, c5.resort_slot, c5.step_ms, c5.settle_ms = 8, 7, 225.0, 75.0
-sc = SimCollector(c5, idle_slot=7); sc.set_time(1.0); sc.send(0, 1, 3000)       # 7 -> 1 is 2 slices: 525 ms
-assert sc.slot_at(1.2) is None and abs(sc.schedule()[0][2] - 1.525) < 1e-9 and sc.slot_at(1.6) == 1
-assert sc.slot_at(4.0) == 1 and sc.slot_at(4.3) is None and sc.slot_at(4.6) == 7  # lands at 4.0, back by 4.525
-sc.set_time(4.2); sc.send(1, 3, 2000)              # sent while returning: finishes at 7 (4.525), then 7 -> 3 (975 ms)
-assert abs(sc.schedule()[1][2] - 5.5) < 1e-9 and sc.landed() == {0: 1, 1: 3}
-sc.set_time(6.4); sc.send(2, 3, 300)               # sent 0.3 s before landing: no time to turn -> lands elsewhere
-assert sc.landed()[2] is None
+# 15 the real collector (collector.ino): 8 slices, every move 300 ms (1 to 4 slices), back to Rework (7) when idle
+c5 = Config(); c5.n_slots, c5.resort_slot, c5.min_gap_ms = 8, 7, 300.0
+assert c5.gap_needed_ms(1, 2) == 300 and c5.gap_needed_ms(7, 3) == 300 and c5.gap_needed_ms(4, 4) == 0
+sc = SimCollector(c5, move_ms=300, idle_slot=7); sc.set_time(1.0); sc.send(0, 1, 3000)
+assert sc.slot_at(1.2) is None and abs(sc.schedule()[0][2] - 1.3) < 1e-9 and sc.slot_at(1.4) == 1
+assert sc.slot_at(4.0) == 1 and sc.slot_at(4.2) is None and sc.slot_at(4.35) == 7      # lands at 4.0, back by 4.3
+sc.set_time(4.1); sc.send(1, 3, 2000)              # sent while returning: reaches 7 at 4.3, then 7 -> 3 by 4.6
+assert abs(sc.schedule()[1][2] - 4.6) < 1e-9 and sc.landed() == {0: 1, 1: 3}
+sc.set_time(7.0); sc.send(2, 5, 1000); sc.send(3, 2, 1300)   # lands 8.0 then 8.3 (+0.3 s), back to back: both caught
+sc.set_time(7.1); sc.send(4, 6, 1400)              # lands 8.5, only 0.2 s after part 3: the pie is still turning
+assert sc.landed()[2] == 5 and sc.landed()[3] == 2 and sc.landed()[4] is None
+# ...which is why the scheduler sends such a pair to Rework: 300 ms apart is fine, 200 ms is not
+s = Scheduler(c5, NullLink()); s.add(0, A, 5.0, 1.0); s.add(1, B, 5.3, 1.0)
+assert slots(s) == {0: 1, 1: 2}, slots(s)
+s = Scheduler(c5, NullLink()); s.add(0, A, 5.0, 1.0); s.add(1, B, 5.2, 1.0)
+assert slots(s) == {0: 7, 1: 7}, slots(s)
 print("scheduler: 15 checks passed")
 
 # ---- fusion table

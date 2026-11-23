@@ -133,8 +133,10 @@ def main(speed=100.0, fps=60, n_teach=20, n_mixed=120, n_gaps=90, reps=4):
         x_drop = cfg.handoff_frac * lane_len(cfg, sim) + cfg.drop_distance_mm
         err = [1000 * (r["t_drop"] - sim.t_cross(p, x_drop) - cfg.fall_ms / 1000)
                for p, r in match(sim, L.rows, cfg) if r]
-        check("landing-time prediction", np.max(np.abs(err)) < 0.25 * (cfg.min_gap_ms - 500),
-              f"worst error {np.max(np.abs(err)):.1f} ms over {cfg.drop_distance_mm:.0f} mm of belt")
+        slack = cfg.min_gap_ms - L.pipe.link.move_ms      # time to spare in each gap beyond the collector's move
+        check("landing-time prediction", np.max(np.abs(err)) < 0.25 * slack,
+              f"worst error {np.max(np.abs(err)):.1f} ms over {cfg.drop_distance_mm:.0f} mm of belt "
+              f"(must be under a quarter of the {slack:.0f} ms spare in each gap)")
 
         # 2 ---- gap rule
         sim = Sim(speed=speed, fps=fps, seed=12); cfg = make_cfg(sim)

@@ -40,8 +40,8 @@ Slices, as on the pie (`collector_req.md`, and `slots` / `resort_slot` in `confi
 3 washer 1/4, 4 bolt 5/16, 5 nut 5/16, 6 washer 5/16, 7 Rework (everything the sorter is not sure about),
 8 Misc (not used yet). The software's labels `bolt-0.375` etc. are the 5/16" parts.
 
-Move times of `collector/collector.ino`: 75 ms + 225 ms per slice (1 slice 300 ms, 4 slices 975 ms). The laptop
-uses `step_ms` 225 and `settle_ms` 175 in `config.json` to keep parts for different slices far enough apart.
+Every move of `collector/collector.ino` takes 300 ms, whether 1 slice or 4. The laptop uses `min_gap_ms` in
+`config.json` (with `step_ms` 0) to keep parts for different slices far enough apart.
 
 ## Test without the laptop program
 

@@ -142,10 +142,10 @@ focus changes.
 |---|---|---|
 | `drop_distance_mm` | from the yellow DECIDE line to where parts leave the belt | tape measure (about 270 now) |
 | `fall_ms` | belt end to landing in the slot | slow-motion phone video |
-| `min_gap_ms` | collector's worst move plus settle | 1100 for `collector.ino` (4 slices, 975 ms) |
+| `min_gap_ms` | collector's move plus settle | `collector.ino` moves take 300 ms; 300 now, 400 recommended (`collector_open_questions.md`) |
 | `extent_factor` | how much of a part's length counts as landing-time uncertainty (0.5) | compare slow-motion video of bolts dropping with `t_drop` in the log |
 | `slots` | which slot each label goes to; `resort_slot` | agree with the collector layout |
-| `step_ms`, `settle_ms` | time per slice, so neighbours need less gap | 225 and 175 for `collector.ino`; change with its MAX_SPEED / ACCEL |
+| `step_ms`, `settle_ms` | optional: time per slice step, so neighbours need less gap | 0 for `collector.ino` (every move 300 ms) |
 
 Other settings worth knowing: `zone` (where parts are measured), `slip_tol` (rolling detection),
 `dark_ratio`, `bright_ratio`, `edge_grad` (segmentation), `geo_gate`, `geo_rival` (how strict the geometric
