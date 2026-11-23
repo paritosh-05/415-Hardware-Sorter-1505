@@ -74,5 +74,8 @@
   "app_k": 5,
   "belt_tol": 0.12,
   "max_cover": 0.35,
-  "stale_s": 0.5
+  "stale_s": 0.5,
+  "follow_belt": true,
+  "speed_tol": 0.1,
+  "retime_ms": 40.0
 }

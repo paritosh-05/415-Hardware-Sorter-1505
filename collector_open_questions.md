@@ -1,5 +1,19 @@
 # Collector: open questions
 
+## Update, 22 November 2026, evening (Paritosh, Windows laptop)
+
+- First runs with the collector connected (`python sorter.py run --port COM5`): the pie turns.
+- `drop_distance_mm` measured: 1.2 ft = 366 mm from the DECIDE line to the belt end (`windows` branch
+  `config.json`). The `mac` branch has 500 with `fall_ms` 350. It is one rig: agree on one pair of values.
+- The conveyor does not hold a steady speed (60 to 92 mm/s within one run). New setting `follow_belt`
+  (README, "Unsteady belt"): live belt speed, and the laptop **re-sends `Q` with the same id** when a
+  landing time changes. `collector.ino` already handles that (same id replaces), so no upload is needed.
+  Expect several `Q` lines per part. They can arrive during a move; they wait in the Uno's serial buffer.
+- `follow_belt` works best with question 1 as it is now (turn as soon as possible, stay until the time
+  given): an early part is still caught. If the pie is changed to turn late, an early part is missed.
+- `min_gap_ms` is still 300. Question 2 (400) is still open, and so is question 1.
+- Not done: self-test rerun, `fall_ms`, checking which bin parts really land in.
+
 Status, 22 November 2026. Bench testing of `collector/collector.ino` started. Pick this up next time.
 
 ## 1. When should the pie turn towards a part? (blocking: needs a code change)

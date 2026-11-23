@@ -140,12 +140,57 @@ focus changes.
 
 | Setting | Meaning | How to get it |
 |---|---|---|
-| `drop_distance_mm` | from the yellow DECIDE line to where parts leave the belt | tape measure (about 270 now) |
+| `drop_distance_mm` | from the yellow DECIDE line to where parts leave the belt | tape measure. This branch's `config.json` has 500 (and `fall_ms` 350); on the `windows` branch Paritosh measured 1.2 ft = 366 mm on 22 Nov (with `fall_ms` 150). Same rig, so agree on one |
 | `fall_ms` | belt end to landing in the slot | slow-motion phone video |
 | `min_gap_ms` | collector's move plus settle | `collector.ino` moves take 300 ms; 300 now, 400 recommended (`collector_open_questions.md`) |
 | `extent_factor` | how much of a part's length counts as landing-time uncertainty (0.5) | compare slow-motion video of bolts dropping with `t_drop` in the log |
 | `slots` | which slot each label goes to; `resort_slot` | agree with the collector layout |
 | `step_ms`, `settle_ms` | optional: time per slice step, so neighbours need less gap | 0 for `collector.ino` (every move 300 ms) |
+
+## Unsteady belt (`follow_belt`)
+
+Added 22 November 2026 because the conveyor does not hold its speed (60 to 92 mm/s within one run, part to
+part). With the normal settings that sends many parts to re-sort as "moving differently from the belt", and
+the landing times sent to the collector are wrong, because both use the median speed of the last 9 parts.
+
+`"follow_belt": true` in `config.json` changes four things (laptop only, same `collector.ino`):
+
+1. **Belt speed is live.** It is the speed of the parts in view right now (their last 0.3 s). With nothing in
+   view the last value is kept.
+2. **Landing times keep being corrected.** Every part that has passed the DECIDE line is moved along the
+   unseen stretch of belt at the live speed. When its predicted landing has shifted by `retime_ms` (40) or
+   more, the same `Q,<id>,...` line is sent again with the new time (`PROTOCOL.md`: same id replaces).
+3. **"Moving differently from the belt"** only compares a part with other parts in view at the same time.
+   A part on its own can no longer be re-sorted for it.
+4. **Wider landing windows.** Each window grows by `speed_tol` (0.10) x the travel time from the camera to
+   the bin, about +-0.45 s at 80 mm/s over 366 mm. This is the allowance for speed changes that happen while
+   the view is empty, which nothing can measure.
+
+Things that must not set the belt speed are ignored: parts touching each other, parts on the belt edge,
+parts dropped in mid-view, anything slower than 15 mm/s, and anything outside half to double the speed of
+the last few parts.
+
+What it costs and what it cannot do:
+
+- Two parts for different bins must be about `2 x speed_tol x travel time + min_gap_ms` apart (about 1.3 s),
+  otherwise both go to Rework. Feed parts further apart, or lower `speed_tol` once the belt is steadier.
+- If the belt changes speed while the view is empty, the waiting parts are timed wrong. A part that lands
+  after its window can fall into the next part's bin. Raising `speed_tol` (0.2) makes this rarer and needs
+  bigger gaps. The real cure is a steady conveyor, or something the camera can measure all the time.
+- A single part that slides or rolls on its own is no longer caught; the window has to cover it.
+
+`python follow_test.py` runs the simulated belt with a varying speed, with the setting off and on, against a
+simulated 300 ms collector that returns to Rework (about 13 minutes; `python follow_test.py quick` about 3).
+45 parts 2 to 4 s apart, belt between 60 and 90 mm/s, parts really landing in the correct bin:
+
+| Belt | off | on | on: wrong bin |
+|---|---|---|---|
+| steady 85 mm/s | 45 | 45 | 0 |
+| slow drift (25 s period) | 5 | 44 | 0 |
+| fast surge (6 s period) | 7 (4 wrong bin) | 42 | 0 |
+| sudden jumps 85 <-> 62 every 7 s | 5 (1 wrong bin) | 36 | 1 |
+
+`parts.csv` has a `retimed_ms` column: how far each part's landing time was moved after the DECIDE line.
 
 Other settings worth knowing: `zone` (where parts are measured), `slip_tol` (rolling detection),
 `dark_ratio`, `bright_ratio`, `edge_grad` (segmentation), `geo_gate`, `geo_rival` (how strict the geometric
@@ -182,6 +227,7 @@ Each `run` writes `runs/<time>/`:
 | `pipeline.py` | ties it together, health checks, logging, overlay |
 | `sim.py`, `selftest.py`, `ref/` | simulated belt built from the six reference photos |
 | `unit_tests.py` | quick checks of the gap rule, agreement rule and geometric model (`python unit_tests.py`) |
+| `follow_test.py` | simulated belt with a varying speed: `follow_belt` off against on (`python follow_test.py`) |
 | `PROTOCOL.md` | messages for the collector controller |
 | `collector/collector.ino`, `collector_req.md` | Arduino Uno code for the pie and the backlight; requirements and pinout |
 | `stepper_serial_moves.ino` | the original stepper test the collector's motion is based on |
@@ -208,6 +254,19 @@ gap rule against a simulated 500 ms collector, stacked / touching / foreign / dr
 lighting change, and the known-order check with deliberate feeding faults. No part reached a wrong bin. The
 seam handling was tested by replaying photos of the real seam as a moving belt.
 
-**Not tested:** anything with the collector connected. `drop_distance_mm`, `fall_ms`, `min_gap_ms` and
+**With the collector connected (22 November 2026, evening, Windows laptop, Arduino on COM5):**
+
+- First runs with `--port COM5`: the pie turns to the slice the laptop sends.
+- `drop_distance_mm` measured as 1.2 ft (366 mm). `fall_ms` (150) and `min_gap_ms` (300) not yet tuned.
+- The belt did not hold its speed: 60 to 92 mm/s in one run, and 7 of 19 parts were re-sorted as "moving
+  differently from the belt". `follow_belt` was added for this (section above).
+- One run with `follow_belt` on: 33 things logged, 19 sorted, 14 re-sorted (8 hanging off the belt edge,
+  4 on the seam, 1 not confident, 1 dropped in), none for "moving differently". The belt was running at
+  135 to 184 mm/s in that run. Whether each sorted part landed in the correct bin was **not** recorded.
+- That run showed a fault, fixed afterwards and not yet rerun on the rig: something standing still in view
+  set the belt speed to 1 mm/s and moved one part's landing time by two minutes.
+- The many "hanging off the belt edge" re-sorts in that run have not been looked into.
+
+**Not tested:** sorting accuracy with the collector connected (which bin each part really lands in). `drop_distance_mm`, `fall_ms`, `min_gap_ms` and
 `extent_factor` in `config.json` are still placeholders. If they are wrong, a correctly identified part can
 still land in the wrong bin. Also untested: parts arriving from the feeder instead of by hand.
