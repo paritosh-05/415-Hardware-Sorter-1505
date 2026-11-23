@@ -23,6 +23,10 @@
   "close_mm": 1.6,
   "min_area_mm2": 25.0,
   "max_area_mm2": 1500.0,
+  "seam_ignore": true,
+  "seam_extra_frac": 0.06,
+  "seam_extra_mm2": 10.0,
+  "seam_min_lane_mm": 36.0,
   "hole_min_mm": 2.0,
   "bg_kernel_mm": 45.0,
   "bg_min_level": 40,
@@ -37,7 +41,7 @@
   "match_gate_mm": 5.0,
   "lost_after_s": 0.2,
   "slip_tol": 0.06,
-  "drop_distance_mm": 270.0,
+  "drop_distance_mm": 366.0,
   "fall_ms": 150.0,
   "extent_factor": 0.5,
   "min_gap_ms": 300.0,
@@ -69,5 +73,8 @@
   "app_k": 5,
   "belt_tol": 0.12,
   "max_cover": 0.35,
-  "stale_s": 0.5
-}
+  "stale_s": 0.5,
+  "follow_belt": true,
+  "speed_tol": 0.1,
+  "retime_ms": 40.0
+}
