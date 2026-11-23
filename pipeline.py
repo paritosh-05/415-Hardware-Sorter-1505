@@ -57,6 +57,7 @@ class Pipeline:
         self.link = link or NullLink()
         self.sched = Scheduler(cfg, self.link)
         self.records = {}            # part id -> dict (kept until the part has dropped)
+        self._follow = {}            # follow_belt: part id -> where it is on the unseen stretch of belt
         self.recent = []             # last few decisions, for the display
         self.stats = dict(parts=0, sorted=0, resort=0, wrong=0, correct=0, override=0, reasons={})
         self.taught = 0
@@ -94,7 +95,9 @@ class Pipeline:
                 tr.crop = gray[max(0, y - p):y + h + p, max(0, x - p):x + w + p].copy()
         if self.mode != "view":
             for tr in finished:
-                self._decide(tr, problem, now)
+                self._decide(tr, problem, now, t)
+            if self.cfg.follow_belt:
+                self._retime(t, now)
         if hasattr(self.link, "set_time"):
             self.link.set_time(now)
         for job in self.sched.tick(now):
@@ -119,7 +122,29 @@ class Pipeline:
         self.notes = {**self.notes, **notes} if notes else {k: v for k, v in self.notes.items() if k == "way" and tk.wrong_way}
 
     # --------------------------------------------------------------------------------- decision
-    def _decide(self, tr, problem, now):
+    def _retime(self, t, now):
+        """Unsteady belt: move every waiting part along by the speed the belt has right now, and tell the
+        collector again when a landing time has changed. With nothing in view the last speed is kept."""
+        cfg, v = self.cfg, max(self.tracker.belt_speed, 1.0)
+        for pid, st in list(self._follow.items()):
+            rec = self.records.get(pid)
+            if rec is None:
+                del self._follow[pid]
+                continue
+            st["dist"] -= v * (t - st["t"])
+            st["t"] = t
+            if st["dist"] <= 0:                           # off the end of the belt: nothing left to correct
+                del self._follow[pid]
+                continue
+            shift = t + st["dist"] / v + cfg.fall_ms / 1000.0 - st["pred"]
+            if abs(shift) * 1000.0 >= cfg.retime_ms and now - st["sent"] >= 0.1:
+                if self.sched.retime(pid, shift, now):
+                    st["pred"] += shift
+                    st["sent"] = now
+                    rec["t_drop"] = round(rec["t_drop"] + shift, 4)
+                    rec["retimed_ms"] = round(rec["retimed_ms"] + 1000.0 * shift)
+
+    def _decide(self, tr, problem, now, t=None):
         cfg = self.cfg
         med = dict(zip(GEO, np.median([[g[k] for k in GEO] for g in tr.geo], axis=0))) if tr.geo else {}
         gv, av, cand = Verdict(), Verdict(), False
@@ -158,10 +183,16 @@ class Pipeline:
         if tr.speed_alt:                                      # two speed guesses: cover both landings
             t_alt = tr.landing(tr.speed_alt, cfg)
             t_drop, half = 0.5 * (t_drop + t_alt), half + 0.5 * abs(t_drop - t_alt)
+        if cfg.follow_belt:
+            t_i, x_i, x_hand = tr._ref
+            t_f = now if t is None else t
+            half += cfg.speed_tol * max(t_drop - t_i, 0.0)    # room for speed changes nobody can see
+            self._follow[tr.id] = dict(dist=x_hand - x_i + cfg.drop_distance_mm - tr.speed * (t_f - t_i), t=t_f,
+                                       pred=tr.landing(tr.speed, cfg), sent=now)
         self.sched.add(tr.id, label, t_drop, now, "" if label != RESORT else reason, half)
         self.records[tr.id] = dict(
             id=tr.id, t_decide=round(tr.t_handoff, 4), t_drop=round(t_drop, 4), window_ms=round(2000 * half),
-            speed_mm_s=round(tr.speed, 1),
+            speed_mm_s=round(tr.speed, 1), retimed_ms=0,
             frames=len(tr.geo), views=len(tr.descs),
             **{k: round(float(med[k]), 3) if k in med else "" for k in GEO},     # blank when never measured
             geo_label=gv.info.get("nearest"), geo_level=gv.level, geo_z=round(gv.score, 2),

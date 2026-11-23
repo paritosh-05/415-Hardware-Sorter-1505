@@ -55,6 +55,18 @@ class Scheduler:
         self._plan(now)
         return job
 
+    def retime(self, part_id, shift, now):
+        """The belt changed speed: part `part_id` will land `shift` seconds later (earlier if negative).
+        The collector is told again; a new conflict is handled like any other."""
+        for j in self.queue:
+            if j.id == part_id:
+                j.t_drop += shift
+                j.sent = False
+                self.queue.sort(key=lambda q: q.t_drop)
+                self._plan(now)
+                return True
+        return False
+
     def tick(self, now):
         """Call every frame. Returns jobs that have just dropped."""
         out = []
