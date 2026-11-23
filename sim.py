@@ -98,11 +98,24 @@ class Sim:
                                t_show=t_enter, v=slip))
         return self.parts[-1]
 
+    travel = None      # optional: travel(t) -> mm the belt has moved by time t (an unsteady belt). None = steady
+
     def x_px(self, part, t):
+        if self.travel is not None:
+            return part["x0"] + part["v"] * self.ppm * (self.travel(t) - self.travel(part["t0"]))
         return part["x0"] + part["v"] * self.speed * self.ppm * (t - part["t0"])
 
     def t_cross(self, part, x_mm):
         """Time the part's centroid is x_mm from the left image edge."""
+        if self.travel is not None:
+            lo, hi = part["t0"], part["t0"] + 600.0
+            for _ in range(60):                          # travel(t) only ever grows: halve the interval
+                mid = 0.5 * (lo + hi)
+                if self.x_px(part, mid) + part["off"] < x_mm * self.ppm:
+                    lo = mid
+                else:
+                    hi = mid
+            return 0.5 * (lo + hi)
         return part["t0"] + (x_mm * self.ppm - part["off"] - part["x0"]) / (part["v"] * self.speed * self.ppm)
 
     def duration(self):

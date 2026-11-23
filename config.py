@@ -51,6 +51,14 @@ class Config:
     match_gate_mm: float = 5.0
     lost_after_s: float = 0.20
     slip_tol: float = 0.06            # a part this much faster/slower than the belt is rolling or sliding
+    follow_belt: bool = False         # True = the belt does not hold a steady speed. Belt speed is then taken from
+                                      # the parts in view right now (not the median of the last few), each queued
+                                      # part's landing time keeps being corrected and re-sent as the speed changes,
+                                      # and "moving differently from the belt" only compares parts that are in
+                                      # view together.
+    speed_tol: float = 0.10           # follow_belt: the belt may change this much while nothing is in view to
+                                      # measure it. Every landing window is widened by this share of the travel time.
+    retime_ms: float = 40.0           # follow_belt: re-send a landing time once it has moved by this much
 
     # ---- hand-off to the collector ----------------------------------------------------------
     drop_distance_mm: float = 270.0   # from the decision line to where parts leave the belt

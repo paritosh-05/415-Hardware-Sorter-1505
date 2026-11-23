@@ -49,6 +49,19 @@ class Track:
         v = self.fit_speed() or belt_speed
         return self.x[-1] + v * (t - self.t[-1])
 
+    def recent_speed(self, window=0.3):
+        """Speed over the last `window` seconds of whole-part frames: what the belt is doing right now."""
+        k = np.array(self.full, bool)
+        if k.sum() < 6:
+            return None
+        t, x = np.array(self.t)[k], np.array(self.x)[k]
+        m = t >= t[-1] - window
+        t, x = t[m], x[m]
+        if len(t) < 6 or t[-1] - t[0] < 0.1:
+            return None
+        v = np.polyfit(t - t[0], x, 1)[0]
+        return float(v) if v > 1.0 else None
+
     def fit_speed(self):
         """Speed from frames where the whole part was visible (a part that is still entering has a
         centroid that moves at half speed)."""
@@ -159,6 +172,10 @@ class Tracker:
                     tr.flags.add("lost")
                 tr.done = True
 
+        if cfg.follow_belt:                       # unsteady belt: its speed is whatever the parts in view do now
+            vs = self._live_speeds(t)
+            if vs:
+                self.belt_speed = float(np.median(vs))
         if seam_done is not None:
             finished.append(seam_done)
         for tr in list(self.tracks):
@@ -172,6 +189,17 @@ class Tracker:
         return finished
 
     _started = False
+
+    def _live_speeds(self, t, skip=None):
+        """Current speeds of the parts in view on this frame (not `skip`, not touching ones)."""
+        out = []
+        for tr in self.tracks:
+            if tr is skip or tr.last_seen != t or tr.flags & {"touching", "oversize"}:
+                continue
+            v = tr.recent_speed()
+            if v is not None:
+                out.append(v)
+        return out
 
     # ------------------------------------------------------------------------------- belt seam
     def _seam(self, blobs, t, dt, lane_len, x_hand):
@@ -262,10 +290,20 @@ class Tracker:
         if len(tr.t) <= 2 and not tr.geo:
             return False                                   # a flicker
         ref = self.belt_speed if len(self._speeds) >= 4 else None
+        follow = self.cfg.follow_belt
+        if follow:
+            # the belt speed varies, so the last few parts say nothing about this one. Use this part's own
+            # current speed, and call it slipping only against other parts that are in view at the same time.
+            v = tr.recent_speed() or v
+            others = self._live_speeds(tr.last_seen, skip=tr)
+            ref = float(np.median(others)) if others else None
         if v is not None and len(tr.t) >= 6 and not tr.flags & {"touching", "seam"}:
             self._speeds = (self._speeds + [v])[-9:]
-            self.belt_speed = float(np.median(self._speeds))
-        if v is not None and ref and abs(v / ref - 1.0) > self.cfg.slip_tol:
+            if not follow:
+                self.belt_speed = float(np.median(self._speeds))
+        if follow and not (v is not None and ref and abs(v / ref - 1.0) > self.cfg.slip_tol):
+            tr.speed = v or self.belt_speed
+        elif v is not None and ref and abs(v / ref - 1.0) > self.cfg.slip_tol:
             tr.flags.add("slipping")               # rolling or sliding: its arrival can't be trusted
             tr.speed, tr.speed_alt = v, ref        # keep both guesses; the landing window covers both
         else:                                      # the belt's speed (many parts) beats one part's fit
