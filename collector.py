@@ -80,23 +80,26 @@ def list_ports():
 
 
 class SimCollector:
-    """Pretend collector for tests: obeys the same messages, on a simulated clock.
+    """Pretend collector for tests: obeys the same messages, on a simulated clock, like collector.ino.
 
-    After each landing it turns towards the next entry's slot, taking move_ms (or settle + steps *
-    step_ms). landed() reports, for every part, the slot it really fell into, or None if the pie
-    was still turning when it landed.
+    It always heads for the slot of the earliest entry that has not landed; after each landing it turns
+    towards the next entry's slot, taking move_ms (or settle + steps * step_ms). It cannot start a move
+    before the message for it was sent. With idle_slot set (the real collector: Rework), it goes back
+    there whenever its queue is empty, and finishes that move before turning to a new part.
+    landed() reports, for every part, the slot it really fell into, or None if the pie was still turning.
     """
 
-    def __init__(self, cfg, move_ms=500.0):
-        self.cfg, self.move_ms = cfg, move_ms
-        self.entries = {}          # id -> (t_land, slot)
+    def __init__(self, cfg, move_ms=500.0, idle_slot=None):
+        self.cfg, self.move_ms, self.idle = cfg, move_ms, idle_slot
+        self.entries = {}          # id -> (t_land, slot, t_first_sent)
         self.now = 0.0
 
     def set_time(self, now):
         self.now = now
 
     def send(self, part_id, slot, ms):
-        self.entries[part_id] = (self.now + ms / 1000.0, slot)
+        t_sent = self.entries[part_id][2] if part_id in self.entries else self.now
+        self.entries[part_id] = (self.now + ms / 1000.0, slot, t_sent)
 
     def poll(self):
         return []
@@ -112,26 +115,43 @@ class SimCollector:
             return (self.cfg.settle_ms + min(d, self.cfg.n_slots - d) * self.cfg.step_ms) / 1000.0
         return self.move_ms / 1000.0
 
-    def schedule(self):
-        """-> [(id, slot, standing_from, standing_until)]: when the pie is at rest for each entry."""
-        out, pos, t_free = [], self.cfg.resort_slot, -1e9
-        for pid, (t_until, slot) in sorted(self.entries.items(), key=lambda kv: kv[1][0]):
+    def _stands(self):
+        """-> [(id or None, slot, standing_from, standing_until)]: every time the pie is at rest.
+        id None = waiting at the start / idle slot. The last stand lasts forever."""
+        start = self.idle if self.idle is not None else self.cfg.resort_slot
+        stands, pos, t_free = [], start, -1e18
+        for pid, (t_until, slot, t_sent) in sorted(self.entries.items(), key=lambda kv: kv[1][0]):
+            if t_sent > t_free:                                  # queue was empty when this was sent
+                if self.idle is not None and pos != self.idle:   # ...so the pie went back to idle first
+                    t_idle = t_free + self._move_time(pos, self.idle)
+                    stands.append((None, self.idle, t_idle, max(t_sent, t_idle)))
+                    pos, t_free = self.idle, max(t_sent, t_idle)
+                else:
+                    t_free = t_sent
             arrive = t_free + self._move_time(pos, slot)
-            out.append((pid, slot, arrive, t_until))
+            stands.append((pid, slot, arrive, t_until))
             pos, t_free = slot, max(t_until, arrive)
-        return out
+        if self.idle is not None and pos != self.idle:
+            stands.append((None, self.idle, t_free + self._move_time(pos, self.idle), 1e18))
+        return stands
+
+    def schedule(self):
+        """-> [(id, slot, standing_from, standing_until)] for each part."""
+        return [s for s in self._stands() if s[0] is not None]
 
     def slot_at(self, t):
         """Slot under the drop at time t, or None while the pie is turning."""
-        sched = self.schedule()
-        for i, (pid, slot, t_from, t_until) in enumerate(sched):
-            nxt = sched[i + 1][2] if i + 1 < len(sched) else 1e18
-            if t_from <= t <= t_until + 1e-9:
-                return slot
-            if t_until < t < nxt:
-                # between entries: still standing if the next entry is the same slot, else turning
-                return slot if i + 1 >= len(sched) or sched[i + 1][1] == slot else None
-        return self.cfg.resort_slot if sched and t < sched[0][2] else None
+        stands = self._stands()
+        start = self.idle if self.idle is not None else self.cfg.resort_slot
+        prev_slot, prev_from = start, -1e18
+        for pid, slot, t_from, t_until in stands:
+            leave = t_from - self._move_time(prev_slot, slot)     # when the pie left the previous stand
+            if prev_from <= t <= leave + 1e-9:
+                return prev_slot
+            if leave < t < t_from:
+                return None
+            prev_slot, prev_from = slot, t_from
+        return prev_slot if t >= prev_from else None
 
     def landed(self):
         """-> {id: slot it fell into if it lands exactly when predicted}."""

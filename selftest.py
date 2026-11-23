@@ -156,12 +156,13 @@ def main(speed=100.0, fps=60, n_teach=20, n_mixed=120, n_gaps=90, reps=4):
             bad_slot += at not in (None, cfg.resort_slot, cfg.slots[p["label"]])
         rows = sorted(L.rows, key=lambda r: r["t_drop"])
         viol = sum(1 for a, b in zip(rows, rows[1:]) if a["slot"] != b["slot"] and not b["missed"] and
-                   (b["t_drop"] - a["t_drop"]) * 1000 - (a["window_ms"] + b["window_ms"]) / 2 < cfg.min_gap_ms - 1)
+                   (b["t_drop"] - a["t_drop"]) * 1000 - (a["window_ms"] + b["window_ms"]) / 2
+                   < cfg.gap_needed_ms(a["slot"], b["slot"]) - 1)
         missed = L.pipe.sched.counts["missed"]
         check("gap rule", c["wrong"] == 0 and viol == 0 and moving == 0 and bad_slot == 0 and missed <= 0.03 * c["n"],
               f"parts 0.25-1.2 s apart: {c['correct']} sorted, {c['resort']} re-sorted, {c['wrong']} WRONG BIN; "
-              f"different-slot windows closer than {cfg.min_gap_ms:.0f} ms: {viol}; real landings while a "
-              f"500 ms collector was turning: {moving}; real landings in another part's slot: {bad_slot}; "
+              f"different-slot windows closer than the collector needs: {viol}; real landings while the "
+              f"collector was turning: {moving}; real landings in another part's slot: {bad_slot}; "
               f"reported as missed: {missed}")
 
         # 3 ---- abuse

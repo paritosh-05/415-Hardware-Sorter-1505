@@ -66,7 +66,16 @@ s.tick(5.05); assert not s.done; s.tick(5.11); assert len(s.done) == 1
 # 14 simulated collector: where is it at a given time?
 sc = SimCollector(cfg, move_ms=500); sc.set_time(0.0); sc.send(0, 1, 5000); sc.send(1, 2, 5700)
 assert sc.slot_at(4.0) == 1 and sc.slot_at(5.0) == 1 and sc.slot_at(5.2) is None and sc.slot_at(5.5) == 2 and sc.slot_at(5.7) == 2
-print("scheduler: 14 checks passed")
+# 15 the real collector (collector.ino): 8 slices, move = 75 + 225 ms per slice, back to Rework (7) when idle
+c5 = Config(); c5.n_slots, c5.resort_slot, c5.step_ms, c5.settle_ms = 8, 7, 225.0, 75.0
+sc = SimCollector(c5, idle_slot=7); sc.set_time(1.0); sc.send(0, 1, 3000)       # 7 -> 1 is 2 slices: 525 ms
+assert sc.slot_at(1.2) is None and abs(sc.schedule()[0][2] - 1.525) < 1e-9 and sc.slot_at(1.6) == 1
+assert sc.slot_at(4.0) == 1 and sc.slot_at(4.3) is None and sc.slot_at(4.6) == 7  # lands at 4.0, back by 4.525
+sc.set_time(4.2); sc.send(1, 3, 2000)              # sent while returning: finishes at 7 (4.525), then 7 -> 3 (975 ms)
+assert abs(sc.schedule()[1][2] - 5.5) < 1e-9 and sc.landed() == {0: 1, 1: 3}
+sc.set_time(6.4); sc.send(2, 3, 300)               # sent 0.3 s before landing: no time to turn -> lands elsewhere
+assert sc.landed()[2] is None
+print("scheduler: 15 checks passed")
 
 # ---- fusion table
 V = lambda lab, lev: Verdict(lab, lev)

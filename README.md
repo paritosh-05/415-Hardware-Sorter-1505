@@ -2,7 +2,9 @@
 
 Team 1505, MIE 415. Camera-based sorting for the automatic hardware sorter.
 
-Scope: 1/4" and 3/8" hex bolts, nuts and washers (six parts), plus a re-sort slot. Seven slots on the pie.
+Scope: 1/4" and 3/8" (really 5/16", see below) hex bolts, nuts and washers (six parts), plus a re-sort slot.
+Eight slices on the pie: 1-6 the parts, 7 Rework (re-sort), 8 Misc. The collector's Arduino code is in
+`collector/` (requirements and pinout: `collector_req.md`).
 The labels are just names: `bolt-0.25 nut-0.25 washer-0.25 bolt-0.375 nut-0.375 washer-0.375`.
 
 Design rule: **a re-sort is cheap, a wrong bin is expensive.** Every stage can say "not sure", and anything
@@ -140,10 +142,10 @@ focus changes.
 |---|---|---|
 | `drop_distance_mm` | from the yellow DECIDE line to where parts leave the belt | tape measure (about 270 now) |
 | `fall_ms` | belt end to landing in the slot | slow-motion phone video |
-| `min_gap_ms` | collector's worst move plus settle | from the collector test (0.5 s move -> 600) |
+| `min_gap_ms` | collector's worst move plus settle | 1100 for `collector.ino` (4 slices, 975 ms) |
 | `extent_factor` | how much of a part's length counts as landing-time uncertainty (0.5) | compare slow-motion video of bolts dropping with `t_drop` in the log |
 | `slots` | which slot each label goes to; `resort_slot` | agree with the collector layout |
-| `step_ms`, `settle_ms` | optional: time per slot step, so neighbours need less gap | leave `step_ms` at 0 to start |
+| `step_ms`, `settle_ms` | time per slice, so neighbours need less gap | 225 and 175 for `collector.ino`; change with its MAX_SPEED / ACCEL |
 
 Other settings worth knowing: `zone` (where parts are measured), `slip_tol` (rolling detection),
 `dark_ratio`, `bright_ratio`, `edge_grad` (segmentation), `geo_gate`, `geo_rival` (how strict the geometric
@@ -181,6 +183,8 @@ Each `run` writes `runs/<time>/`:
 | `sim.py`, `selftest.py`, `ref/` | simulated belt built from the six reference photos |
 | `unit_tests.py` | quick checks of the gap rule, agreement rule and geometric model (`python unit_tests.py`) |
 | `PROTOCOL.md` | messages for the collector controller |
+| `collector/collector.ino`, `collector_req.md` | Arduino Uno code for the pie and the backlight; requirements and pinout |
+| `stepper_serial_moves.ino` | the original stepper test the collector's motion is based on |
 
 ## What has and has not been tested
 
