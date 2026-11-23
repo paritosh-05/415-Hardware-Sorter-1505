@@ -41,9 +41,10 @@ Recommendation: 400.
 
 ## 3. Unfinished on the laptop side
 
-- `selftest.py`'s "landing-time prediction" pass mark still assumes a 500 ms collector
-  (`0.25 * (min_gap_ms - 500)`). It is fine with the default settings, but fails with the rig's 300 ms
-  collector. It should use the actual collector move time.
+- `selftest.py`'s "landing-time prediction" pass mark now uses the simulated collector's own move time
+  (a quarter of `min_gap_ms - move time`). Same limit as before with the default settings (25 ms); with the
+  rig's 300 ms moves and `min_gap_ms` 300 it fails on purpose (no spare time). The standard self-test has
+  not been rerun since this change.
 - `fall_ms` (150) and `drop_distance_mm` (270) are still placeholders: measure them on the rig.
 
 ## Things that are done
