@@ -75,8 +75,8 @@ class Scheduler:
     def _conflict(self, a, b):
         if a.slot == b.slot:
             return (not self.cfg.same_slot_ok) and a.slot != self.cfg.resort_slot and \
-                (b.t_start - a.t_end) * 1000.0 < self.cfg.min_gap_ms
-        return (b.t_start - a.t_end) * 1000.0 < self.cfg.gap_needed_ms(a.slot, b.slot)
+                (b.t_start - a.t_end) * 1000.0 < self.cfg.min_gap_ms - 1e-6
+        return (b.t_start - a.t_end) * 1000.0 < self.cfg.gap_needed_ms(a.slot, b.slot) - 1e-6   # tolerance: float rounding
 
     def _plan(self, now):
         rs = self.cfg.resort_slot

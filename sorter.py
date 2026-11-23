@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Team 1505 hardware sorter - vision system v2.
 
-  python sorter.py cams                      list cameras
+  python sorter.py cams                      list cameras and serial ports
   python sorter.py setup                     camera settings, empty-belt background, lane, px/mm
   python sorter.py teach bolt-0.25           run ONLY that part through; saves examples
   python sorter.py build                     fit both models from the examples, print the report
@@ -30,7 +30,7 @@ import cv2
 import numpy as np
 
 from camera import CameraSource, FileSource, Recorder, list_cameras
-from collector import NullLink, SerialLink
+from collector import NullLink, SerialLink, list_ports
 from config import QUARTER_MM, Config
 from pipeline import BG_FILE, Pipeline, build_models
 
@@ -279,7 +279,10 @@ def main():
     cfg = Config.load(args.config)
 
     if args.mode == "cams":
+        print("Cameras:")
         list_cameras()
+        print("Serial ports (for --port):")
+        list_ports()
     elif args.mode == "build":
         build_models(cfg)
     elif args.mode == "selftest":
