@@ -6,6 +6,7 @@ Serial protocol (text lines, 115200 baud, newline terminated). See PROTOCOL.md.
                                                Sending the same id again replaces the earlier entry.
                          H                     go home and re-zero
                          S                     stop (hold position, clear the queue)
+                         A                     alive: about once a second while the sorter runs (status light)
   controller -> laptop   OK,<id>               entry accepted
                          D,<id>,<slot>         drop time of <id> passed while standing at <slot>
                          E,<text>              error, e.g. E,HOME (home sensor did not match)
@@ -43,6 +44,7 @@ class SerialLink:
             list_ports()
             raise SystemExit(1)
         self.buf = b""
+        self.t_alive = 0.0
         time.sleep(2.0)                    # most boards reset when the port opens
         self.ser.write(b"H\n")
 
@@ -50,7 +52,12 @@ class SerialLink:
         self.ser.write(f"Q,{part_id},{slot},{int(round(ms))}\n".encode())
 
     def poll(self):
-        """Lines received from the controller since the last call."""
+        """Lines received from the controller since the last call. Called on every frame, so it also
+        tells the controller about once a second that the sorter is running (its status light: PROTOCOL.md)."""
+        now = time.monotonic()
+        if now - self.t_alive >= 1.0:
+            self.t_alive = now
+            self.ser.write(b"A\n")
         self.buf += self.ser.read(4096)
         *lines, self.buf = self.buf.split(b"\n")
         return [ln.decode(errors="replace").strip() for ln in lines if ln.strip()]

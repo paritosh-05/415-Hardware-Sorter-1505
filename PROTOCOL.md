@@ -10,6 +10,7 @@ the controller does the motion and the timing.
 | `Q,<id>,<slot>,<ms>` | Part `<id>` belongs in `<slot>` (slice 1 to 8) and will have landed within `<ms>` milliseconds from now: be at the slot and stay until then. If `<id>` is already queued, this replaces it (the slot can change to re-sort when another part turns up too close). |
 | `H` | Go home and re-zero on the home sensor. Sent once when the laptop connects. Early build (no home sensor): just answers `READY`. |
 | `S` | Stop: clear the queue (the pie then goes back to Rework). Sent when the laptop program exits. |
+| `A` | Alive. Sent about once a second while the sorter program is running (not while it is paused). No answer. Only used for the status light. |
 
 ## Controller to laptop
 
@@ -42,6 +43,16 @@ Slices, as on the pie (`collector_req.md`, and `slots` / `resort_slot` in `confi
 
 Every move of `collector/collector.ino` takes 300 ms, whether 1 slice or 4. The laptop uses `min_gap_ms` in
 `config.json` (with `step_ms` 0) to keep parts for different slices far enough apart.
+
+## Status light
+
+Green LED on D11 (`collector/PINOUT.md`). Fast blink: starting up, about half a second after power-up or a
+reset. Slow blink (1 s cycle): ready, waiting for the sorter program. Solid: the sorter program is connected and
+running, meaning the controller has received `H`, `Q` or `A` within the last 3 seconds and no `S` since.
+It drops back to slow blink within 3 s if the program is paused, freezes, exits, or the cable is pulled.
+"Running" means the laptop program's frame loop is turning. It does not prove the camera sees the belt or
+that parts are being sorted; the laptop window shows that. Commands typed in the Serial Monitor (`G`, `Z`,
+`P`) do not turn it solid, `H` or `A` do.
 
 ## Test without the laptop program
 

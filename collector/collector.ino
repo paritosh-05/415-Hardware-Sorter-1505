@@ -7,12 +7,19 @@
 //   laptop -> Arduino   Q,<id>,<slice>,<ms>   part <id> lands in <slice> (1-8) within <ms> ms from now
 //                       H                     home. Early build: no home sensor, just answers READY
 //                       S                     stop: clear the queue (the pie then goes back to Rework)
+//                       A                     "alive": sent about once a second while the sorter program runs
 //   test commands       G,<slice>             clear the queue and go to <slice> now
 //   (Serial Monitor)    Z,<slice>             "this slice is catching now": set the position, no motion
 //                       P                     print the position
 //   Arduino -> laptop   OK,<id> | D,<id>,<slice or 0 if turning> | READY | POS,<slice> | ?,<problem>
 //
 // Needs the "Adafruit NeoPixel" library (Library Manager).
+//
+// Status light (green LED on STATUS_PIN, D11, through a 220-330 ohm resistor to GND):
+//   fast blink   starting up (about half a second after power-up or reset)
+//   slow blink   ready, waiting for the laptop's sorter program
+//   solid        the sorter program is connected and running (it has said H / Q / A in the last 3 s)
+// It goes back to slow blink when the program exits (S), is paused, freezes or the cable is pulled.
 //
 // How it works: the queue holds (id, slice, landing time) sorted by time. The pie always heads for the
 // slice of the earliest part that has not landed yet; once that time has passed the entry is removed
@@ -34,6 +41,7 @@ const uint8_t PUL_PIN = 2;          // -> TB6600 PUL+
 const uint8_t DIR_PIN = 3;          // -> TB6600 DIR+
 const uint8_t LED_PIN_A = 7;        // -> data in of LED strip A
 const uint8_t LED_PIN_B = 8;        // -> data in of LED strip B
+const uint8_t STATUS_PIN = 11;      // -> green status LED (+), through 220-330 ohm; LED (-) to GND
 
 // ---------------- Mechanics ----------------
 const long MOTOR_STEPS = 200;       // 1.8 deg motor
@@ -56,6 +64,12 @@ const bool REMEMBER_POSITION = true;   // keep the position in EEPROM across res
 const uint8_t LED_LEVEL = 255;      // 0-255, all three colours (full white)
 const uint8_t LEDS_PER_STRIP = 14;
 
+// Status light timing
+const unsigned int FAST_BLINK_MS = 60;        // on / off time while starting up
+const unsigned int START_BLINK_MS = 600;      // how long the start-up blink lasts
+const unsigned int SLOW_BLINK_MS = 500;       // on / off time while waiting for the laptop
+const unsigned long LINK_TIMEOUT_MS = 3000;   // no H / Q / A from the laptop for this long = not connected
+
 // The Uno resets every time the laptop opens the serial port. Without REMEMBER_POSITION it would then
 // believe slice 1 is catching while the pie is really waiting at Rework. So the slice is saved after
 // every move, and a "turning" marker before every move; if the Arduino restarts mid-move the position
@@ -77,6 +91,24 @@ int qn = 0;
 
 char line[40];
 uint8_t lineLen = 0;
+
+bool linked = false;                // the sorter program has spoken and has not said S
+unsigned long lastHeard = 0;        // millis() of its last H / Q / A
+
+// ---------------------------------------------------------------- status light
+void heard() {
+  linked = true;
+  lastHeard = millis();
+}
+
+// Called from loop(). A move blocks for 300 ms, so the slow blink can stretch by that much; solid stays solid.
+void statusLight() {
+  unsigned long now = millis();
+  if (linked && now - lastHeard < LINK_TIMEOUT_MS)
+    digitalWrite(STATUS_PIN, HIGH);
+  else
+    digitalWrite(STATUS_PIN, (now / SLOW_BLINK_MS) % 2 ? HIGH : LOW);
+}
 
 // ---------------------------------------------------------------- stepping
 inline void stepPulse() {
@@ -196,11 +228,16 @@ void handleLine(char *s) {
   char *a = strtok(NULL, ","), *b = strtok(NULL, ","), *m = strtok(NULL, ",");
   if (c == 'Q') {
     if (!a || !b || !m || !validSlice(atol(b)) || atol(m) < 0) { Serial.println(F("?,BAD Q")); return; }
+    heard();
     queuePut(atol(a), (uint8_t)atol(b), millis() + (unsigned long)atol(m));
   } else if (c == 'H') {
+    heard();
     Serial.println(F("READY"));     // early build: no home sensor
+  } else if (c == 'A') {
+    heard();                        // "alive" from the sorter program: no answer, keeps the light solid
   } else if (c == 'S') {
     qn = 0;
+    linked = false;                 // the sorter program has exited: back to slow blink
   } else if (c == 'G') {
     if (!a || !validSlice(atol(a))) { Serial.println(F("?,BAD G")); return; }
     qn = 0;
@@ -239,6 +276,8 @@ void setup() {
   pinMode(PUL_PIN, OUTPUT);
   pinMode(DIR_PIN, OUTPUT);
   digitalWrite(PUL_PIN, LOW);
+  pinMode(STATUS_PIN, OUTPUT);
+  digitalWrite(STATUS_PIN, HIGH);
   Serial.begin(115200);
 
   stripA.begin(); stripB.begin();
@@ -257,6 +296,10 @@ void setup() {
       Serial.println(F("?,RESTARTED WHILE TURNING: assuming slice 1 is catching. Re-align the pie, then send Z,1"));
     savePos(pos);
   }
+  for (unsigned int t = 0; t < START_BLINK_MS; t += 2 * FAST_BLINK_MS) {   // starting up: fast blink
+    digitalWrite(STATUS_PIN, LOW);  delay(FAST_BLINK_MS);
+    digitalWrite(STATUS_PIN, HIGH); delay(FAST_BLINK_MS);
+  }
   Serial.print(F("POS,")); Serial.println(pos);
   Serial.println(F("READY"));
 }
@@ -264,6 +307,7 @@ void setup() {
 void loop() {
   readSerial();
   landPassed(millis());
+  statusLight();
   uint8_t target = qn > 0 ? queue[0].slice : IDLE_SLICE;
   if (target != pos) moveTo(target);
 }
