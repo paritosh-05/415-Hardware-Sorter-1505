@@ -230,6 +230,7 @@ Each `run` writes `runs/<time>/`:
 | `follow_test.py` | simulated belt with a varying speed: `follow_belt` off against on (`python follow_test.py`) |
 | `PROTOCOL.md` | messages for the collector controller |
 | `collector/collector.ino`, `collector_req.md` | Arduino Uno code for the pie and the backlight; requirements and pinout |
+| `collector/PINOUT.md` | Arduino Uno pinout on one page: stepper driver, LED panels, power, quick checks |
 | `stepper_serial_moves.ino` | the original stepper test the collector's motion is based on |
 
 ## What has and has not been tested
