@@ -81,6 +81,8 @@ PINOUT (Arduino Uno)
 | D7      | LED strip A, data in (DIN)   | 14 x WS2812B. 330 ohm resistor in series, close to the strip.|
 | D8      | LED strip B, data in (DIN)   | 14 x WS2812B. 330 ohm resistor in series, close to the strip.|
 | GND     | TB6600 PUL-, DIR-; LED supply GND | All grounds joined.                                     |
+| D11     | Green status LED (+)         | 220-330 ohm in series, LED (-) to GND. Fast blink starting up,   |
+|         |                              | slow blink waiting for the laptop, solid when the sorter runs.   |
 | D9, D10 | (keep free)                  | Timer1 is used for stepping, so PWM on these pins won't work.|
 
 TB6600 ENA+/ENA- are left unconnected (driver always enabled). TB6600 power: its own 9-42 V DC supply.

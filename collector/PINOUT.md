@@ -12,9 +12,10 @@ turns the pie and holds the two hood LED panels at full white. If a pin changes 
 | D3 | `DIR_PIN` | TB6600 **DIR+** | Direction. Pie turns the wrong way: set `INVERT_DIR = true` (do not swap wires). |
 | D7 | `LED_PIN_A` | LED panel A, **Din** | 14 LEDs, `NEO_GRB + NEO_KHZ800`. |
 | D8 | `LED_PIN_B` | LED panel B, **Din** | 14 LEDs, same. |
+| D11 | `STATUS_PIN` | green status LED, **+** (long leg) through a 220 to 330 ohm resistor | LED **-** to GND. HIGH = on. |
 | GND | | TB6600 **PUL-** and **DIR-**, and the LED supply's GND | All grounds joined. |
 
-Not used by the sketch, so free: D4, D5, D6, D9 to D13, A0 to A5. D13 also drives the on-board LED.
+Not used by the sketch, so free: D4, D5, D6, D9, D10, D12, D13, A0 to A5. D13 also drives the on-board LED.
 `collector_req.md` says to keep D9 and D10 free because Timer1 does the stepping; the sketch as it stands
 times its steps with `micros()` and does not use Timer1, so that only matters if the stepping is changed.
 
@@ -52,6 +53,20 @@ The sketch assumes 200 steps/rev, a 1:4 belt and 8 slices: 1600 microsteps per s
 - The LEDs are written once at power-up (full white, `LED_LEVEL` 255) and never again, so they stay on while
   the Uno has power and do not disturb the stepping.
 
+## Status light (D11)
+
+Uno D11 -> resistor (220 to 330 ohm, **not** kilohm) -> LED long leg; LED short leg -> GND. About 10 mA.
+
+| Light | Meaning |
+|---|---|
+| fast blink | starting up (about half a second after power-up, a reset, or the laptop opening the port) |
+| slow blink | ready, waiting for the sorter program on the laptop |
+| solid | sorter program connected and running (it has spoken in the last 3 s) |
+| off | no power, LED backwards, or wrong resistor |
+
+It goes back to slow blink within 3 s when the program exits, is paused (space), freezes, or the USB cable
+is pulled. Details: `PROTOCOL.md`, "Status light".
+
 ## Power and USB
 
 - Uno: powered from the laptop's USB. Port: `/dev/cu.usbmodem...` or `/dev/cu.usbserial...` (`python sorter.py cams` lists it; use the `cu.` name, not `tty.`).
@@ -63,7 +78,8 @@ The sketch assumes 200 steps/rev, a 1:4 belt and 8 slices: 1600 microsteps per s
 
 Arduino Serial Monitor, 115200 baud, line ending "Newline" (close it again before running the sorter):
 
-1. After a reset it prints `POS,<n>` and `READY`, and both panels go white.
+1. After a reset the status light blinks fast for about half a second, it prints `POS,<n>` and `READY`,
+   both panels go white, and the status light blinks slowly. Send `H`: solid for 3 s, then slow again.
 2. `G,2`: the pie turns so slice 2 catches, waits 3 s, goes back to 7 (Rework).
 3. `P`: prints the slice it thinks is catching. `Z,<n>`: tells it slice n is catching, after moving the pie by hand.
 
